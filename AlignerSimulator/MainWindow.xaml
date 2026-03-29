@@ -1,0 +1,280 @@
+﻿<Window x:Class="AlignerSimulator.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:AlignerSimulator"
+        mc:Ignorable="d"
+        Title="Wafer Aligner Simulator – Keyence IG-028"
+        Height="850" Width="1400" MinWidth="1000" MinHeight="700"
+        Background="#1A1A2E" WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <local:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <local:InverseBoolConverter x:Key="InvBool"/>
+        <local:SubstrateTypeConverter x:Key="SubType"/>
+        <local:SensorValueColorConverter x:Key="SensorColor"/>
+
+        <Style TargetType="TextBlock" x:Key="LabelStyle">
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style TargetType="TextBox" x:Key="ParamBox">
+            <Setter Property="Width" Value="70"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Background" Value="#2A2A3E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="CaretBrush" Value="White"/>
+        </Style>
+        <Style TargetType="Slider" x:Key="ParamSlider">
+            <Setter Property="Width" Value="140"/>
+            <Setter Property="Margin" Value="4,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="#AAAACC"/>
+            <Setter Property="BorderBrush" Value="#444"/>
+            <Setter Property="Margin" Value="4"/>
+            <Setter Property="Padding" Value="6"/>
+        </Style>
+        <Style TargetType="Button" x:Key="ActionBtn">
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="MinWidth" Value="80"/>
+            <Setter Property="Margin" Value="4"/>
+            <Setter Property="Background" Value="#3A3A5E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#666"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300" MinWidth="250"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="60"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="280"/>
+        </Grid.RowDefinitions>
+
+        <!-- ═══════ LEFT PANEL: PARAMETERS ═══════ -->
+        <ScrollViewer Grid.Column="0" Grid.RowSpan="2" VerticalScrollBarVisibility="Auto"
+                      Background="#1E1E32">
+            <StackPanel Margin="6">
+
+                <!-- Substrate Type -->
+                <GroupBox Header="Substrate">
+                    <StackPanel>
+                        <CheckBox x:Name="chkTapeFrame" Content="Tape Frame (SEMI G74)"
+                                  IsChecked="{Binding IsTapeFrame}" Foreground="#CCC" Margin="0,2"/>
+                        <TextBlock Text="{Binding IsTapeFrame, Converter={StaticResource SubType}}"
+                                   Foreground="#88AAFF" FontSize="10" Margin="0,2"/>
+
+                        <TextBlock Text="Wafer Diameter (mm)" Style="{StaticResource LabelStyle}" Margin="0,8,0,0"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding WaferDiameter, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="50" Maximum="450" Value="{Binding WaferDiameter}"
+                                    TickFrequency="50" IsSnapToTickEnabled="False"
+                                    Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Notch -->
+                <GroupBox Header="Notch / Flat">
+                    <StackPanel>
+                        <TextBlock Text="Notch Start (°)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding NotchStartDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="0" Maximum="359" Value="{Binding NotchStartDeg}"
+                                    Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+
+                        <TextBlock Text="Notch Depth (mm)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding NotchDepthMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="0" Maximum="3" Value="{Binding NotchDepthMm}"
+                                    TickFrequency="0.1" Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+
+                        <TextBlock Text="Notch Width (°)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding NotchWidthDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="0" Maximum="30" Value="{Binding NotchWidthDeg}"
+                                    Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Noise & Warp -->
+                <GroupBox Header="Noise &amp; Warpage">
+                    <StackPanel>
+                        <TextBlock Text="Sensor Noise σ (mm)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding NoiseMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F3}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="0" Maximum="0.5" Value="{Binding NoiseMm}"
+                                    TickFrequency="0.01" Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+
+                        <TextBlock Text="Bow (mm)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding BowMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="-2" Maximum="2" Value="{Binding BowMm}"
+                                    TickFrequency="0.1" Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+
+                        <TextBlock Text="Potato Chip Warp (mm)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding PotatoChipMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="-2" Maximum="2" Value="{Binding PotatoChipMm}"
+                                    TickFrequency="0.1" Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Offset -->
+                <GroupBox Header="Wafer Offset on Chuck">
+                    <StackPanel>
+                        <TextBlock Text="Offset X (mm)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding OffsetX, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="-5" Maximum="5" Value="{Binding OffsetX}"
+                                    TickFrequency="0.1" Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+
+                        <TextBlock Text="Offset Y (mm)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding OffsetY, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="-5" Maximum="5" Value="{Binding OffsetY}"
+                                    TickFrequency="0.1" Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Edge Chips -->
+                <GroupBox Header="Edge Chips">
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding Chips}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel Margin="0,2">
+                                        <Button Content="✕" Width="20" Height="20" FontSize="10"
+                                                DockPanel.Dock="Right" Margin="2,0,0,0"
+                                                Background="#553333" Foreground="White" BorderBrush="#633"
+                                                Command="{Binding DataContext.RemoveChipCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"/>
+                                        <TextBlock Text="@" Style="{StaticResource LabelStyle}" Width="12"/>
+                                        <TextBox Text="{Binding AngleDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"
+                                                 Style="{StaticResource ParamBox}" Width="40"/>
+                                        <TextBlock Text="° d=" Style="{StaticResource LabelStyle}" Width="24"/>
+                                        <TextBox Text="{Binding DepthMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                                 Style="{StaticResource ParamBox}" Width="45"/>
+                                        <TextBlock Text="mm w=" Style="{StaticResource LabelStyle}" Width="30"/>
+                                        <TextBox Text="{Binding WidthDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                                 Style="{StaticResource ParamBox}" Width="35"/>
+                                        <TextBlock Text="°" Style="{StaticResource LabelStyle}"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Content="+ Add Chip" Command="{Binding AddChipCommand}"
+                                Style="{StaticResource ActionBtn}" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Speed & Sampling -->
+                <GroupBox Header="Motion &amp; Sampling">
+                    <StackPanel>
+                        <TextBlock Text="Chuck Speed (RPM)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding ChuckSpeedRpm, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="1" Maximum="600" Value="{Binding ChuckSpeedRpm}"
+                                    Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+
+                        <TextBlock Text="Sampling Rate (Hz)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding SamplingRateHz, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="100" Maximum="10000" Value="{Binding SamplingRateHz}"
+                                    Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Rotation Control -->
+                <GroupBox Header="Rotation Control">
+                    <StackPanel>
+                        <TextBlock Text="Manual Angle (°)" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding ManualAngleDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="0" Maximum="359.9" Value="{Binding ManualAngleDeg}"
+                                    Style="{StaticResource ParamSlider}"
+                                    IsEnabled="{Binding IsRunning, Converter={StaticResource InvBool}}"/>
+                        </DockPanel>
+                        <WrapPanel Margin="0,4">
+                            <Button Content="{Binding StartStopLabel}"
+                                    Command="{Binding StartStopCommand}"
+                                    Style="{StaticResource ActionBtn}"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Export -->
+                <GroupBox Header="Export">
+                    <StackPanel>
+                        <TextBlock Text="Rotations to export" Style="{StaticResource LabelStyle}"/>
+                        <DockPanel>
+                            <TextBox Text="{Binding ExportRotations, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <Slider Minimum="1" Maximum="100" Value="{Binding ExportRotations}"
+                                    IsSnapToTickEnabled="True" TickFrequency="1"
+                                    Style="{StaticResource ParamSlider}"/>
+                        </DockPanel>
+                        <Button Content="💾 Export CSV" Command="{Binding ExportCsvCommand}"
+                                Style="{StaticResource ActionBtn}" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ═══════ CENTRE TOP: WAFER TOP VIEW ═══════ -->
+        <local:WaferTopViewControl Grid.Column="1" Grid.Row="0"
+            WaferDiameter="{Binding WaferDiameter}"
+            IsTapeFrame="{Binding IsTapeFrame}"
+            OffsetX="{Binding OffsetX}"
+            OffsetY="{Binding OffsetY}"
+            CurrentAngle="{Binding ManualAngleDeg}"
+            NotchStartDeg="{Binding NotchStartDeg}"/>
+
+        <!-- ═══════ RIGHT: SENSOR BAR ═══════ -->
+        <local:SensorBarControl Grid.Column="2" Grid.Row="0"
+            SensorValue="{Binding CurrentSensorValue}"/>
+
+        <!-- ═══════ BOTTOM: SENSOR CHART ═══════ -->
+        <local:SensorChartControl Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1"
+            SensorHistory="{Binding SensorHistory}"
+            AngleHistory="{Binding AngleHistory}"
+            CurrentAngle="{Binding ManualAngleDeg}"
+            CurrentValue="{Binding CurrentSensorValue}"/>
+    </Grid>
+</Window>
