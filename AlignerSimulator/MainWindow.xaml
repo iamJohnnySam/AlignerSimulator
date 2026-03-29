@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AlignerSimulator"
         mc:Ignorable="d"
-        Title="Wafer Aligner Simulator – Keyence IG-028"
+        Title="Wafer Aligner Simulator"
         Height="850" Width="1400" MinWidth="1000" MinHeight="700"
         Background="#1A1A2E" WindowStartupLocation="CenterScreen">
 
@@ -80,41 +80,136 @@
 
                         <TextBlock Text="Wafer Diameter (mm)" Style="{StaticResource LabelStyle}" Margin="0,8,0,0"/>
                         <DockPanel>
-                            <TextBox Text="{Binding WaferDiameter, UpdateSourceTrigger=PropertyChanged}"
-                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
-                            <Slider Minimum="50" Maximum="450" Value="{Binding WaferDiameter}"
-                                    TickFrequency="50" IsSnapToTickEnabled="False"
-                                    Style="{StaticResource ParamSlider}"/>
+                            <TextBox Text="{Binding WaferDiameter, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"
+                                         Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                                <Slider Minimum="50" Maximum="450" Value="{Binding WaferDiameter}"
+                                        TickFrequency="1" IsSnapToTickEnabled="True"
+                                        Style="{StaticResource ParamSlider}"/>
                         </DockPanel>
                     </StackPanel>
                 </GroupBox>
 
-                <!-- Notch -->
-                <GroupBox Header="Notch / Flat">
+                <!-- Edge Feature -->
+                <GroupBox Header="Edge Feature">
                     <StackPanel>
-                        <TextBlock Text="Notch Start (°)" Style="{StaticResource LabelStyle}"/>
-                        <DockPanel>
-                            <TextBox Text="{Binding NotchStartDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
-                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
-                            <Slider Minimum="0" Maximum="359" Value="{Binding NotchStartDeg}"
-                                    Style="{StaticResource ParamSlider}"/>
-                        </DockPanel>
+                        <TextBlock Text="Feature Type" Style="{StaticResource LabelStyle}"/>
+                        <ComboBox SelectedIndex="{Binding EdgeFeatureIndex}" Margin="0,2"
+                                  Background="#2A2A3E" Foreground="Black" BorderBrush="#555">
+                            <ComboBox.ItemContainerStyle>
+                                <Style TargetType="ComboBoxItem">
+                                    <Setter Property="Foreground" Value="Black"/>
+                                </Style>
+                            </ComboBox.ItemContainerStyle>
+                            <ComboBoxItem Content="Notch"/>
+                            <ComboBoxItem Content="Flat"/>
+                            <ComboBoxItem Content="Double Flat"/>
+                        </ComboBox>
 
-                        <TextBlock Text="Notch Depth (mm)" Style="{StaticResource LabelStyle}"/>
-                        <DockPanel>
-                            <TextBox Text="{Binding NotchDepthMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
-                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
-                            <Slider Minimum="0" Maximum="3" Value="{Binding NotchDepthMm}"
-                                    TickFrequency="0.1" Style="{StaticResource ParamSlider}"/>
-                        </DockPanel>
+                        <!-- Notch parameters -->
+                        <StackPanel Visibility="{Binding IsNotchMode, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Notch Start (°)" Style="{StaticResource LabelStyle}" Margin="0,6,0,0"/>
+                            <DockPanel>
+                                <TextBox Text="{Binding NotchStartDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                         Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                                <Slider Minimum="0" Maximum="359" Value="{Binding NotchStartDeg}"
+                                        Style="{StaticResource ParamSlider}"/>
+                            </DockPanel>
 
-                        <TextBlock Text="Notch Width (°)" Style="{StaticResource LabelStyle}"/>
-                        <DockPanel>
-                            <TextBox Text="{Binding NotchWidthDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
-                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
-                            <Slider Minimum="0" Maximum="30" Value="{Binding NotchWidthDeg}"
-                                    Style="{StaticResource ParamSlider}"/>
-                        </DockPanel>
+                            <TextBlock Text="Notch Depth (mm)" Style="{StaticResource LabelStyle}"/>
+                            <DockPanel>
+                                <TextBox Text="{Binding NotchDepthMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                         Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                                <Slider Minimum="0" Maximum="3" Value="{Binding NotchDepthMm}"
+                                        TickFrequency="0.1" Style="{StaticResource ParamSlider}"/>
+                            </DockPanel>
+
+                            <TextBlock Text="Notch Half-Width (°)" Style="{StaticResource LabelStyle}"/>
+                            <DockPanel>
+                                <TextBox Text="{Binding NotchWidthDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                         Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                                <Slider Minimum="0" Maximum="5" Value="{Binding NotchWidthDeg}"
+                                        TickFrequency="0.05" Style="{StaticResource ParamSlider}"/>
+                            </DockPanel>
+                        </StackPanel>
+
+                        <!-- Primary flat parameters -->
+                        <StackPanel Visibility="{Binding HasPrimaryFlat, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Primary Flat Angle (°)" Style="{StaticResource LabelStyle}" Margin="0,6,0,0"/>
+                            <DockPanel>
+                                <TextBox Text="{Binding PrimaryFlatAngleDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                         Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                                <Slider Minimum="0" Maximum="359" Value="{Binding PrimaryFlatAngleDeg}"
+                                        Style="{StaticResource ParamSlider}"/>
+                            </DockPanel>
+
+                            <TextBlock Text="Primary Flat Length (mm)" Style="{StaticResource LabelStyle}"/>
+                            <DockPanel>
+                                <TextBox Text="{Binding PrimaryFlatLengthMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                         Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                                <Slider Minimum="0" Maximum="200" Value="{Binding PrimaryFlatLengthMm}"
+                                        TickFrequency="0.5" Style="{StaticResource ParamSlider}"/>
+                            </DockPanel>
+                        </StackPanel>
+
+                        <!-- Secondary flat parameters -->
+                        <StackPanel Visibility="{Binding HasSecondaryFlat, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Secondary Flat Angle (°)" Style="{StaticResource LabelStyle}" Margin="0,6,0,0"/>
+                            <DockPanel>
+                                <TextBox Text="{Binding SecondaryFlatAngleDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                         Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                                <Slider Minimum="0" Maximum="359" Value="{Binding SecondaryFlatAngleDeg}"
+                                        Style="{StaticResource ParamSlider}"/>
+                            </DockPanel>
+
+                            <TextBlock Text="Secondary Flat Length (mm)" Style="{StaticResource LabelStyle}"/>
+                            <DockPanel>
+                                <TextBox Text="{Binding SecondaryFlatLengthMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                         Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                                <Slider Minimum="0" Maximum="120" Value="{Binding SecondaryFlatLengthMm}"
+                                        TickFrequency="0.5" Style="{StaticResource ParamSlider}"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Tape Frame Notches -->
+                <GroupBox Header="Frame Notches" Visibility="{Binding IsTapeFrame, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding FrameNotches}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel Margin="0,2">
+                                        <Button Content="✕" Width="20" Height="20" FontSize="10"
+                                                DockPanel.Dock="Right" Margin="2,0,0,0"
+                                                Background="#553333" Foreground="White" BorderBrush="#633"
+                                                Command="{Binding DataContext.RemoveFrameNotchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"/>
+                                        <ComboBox SelectedIndex="{Binding ShapeIndex}" Width="36" Margin="0,0,4,0"
+                                                  DockPanel.Dock="Right"
+                                                  Background="#2A2A3E" Foreground="Black" BorderBrush="#555" FontSize="10">
+                                            <ComboBox.ItemContainerStyle>
+                                                <Style TargetType="ComboBoxItem">
+                                                    <Setter Property="Foreground" Value="Black"/>
+                                                </Style>
+                                            </ComboBox.ItemContainerStyle>
+                                            <ComboBoxItem Content="V"/>
+                                            <ComboBoxItem Content="U"/>
+                                        </ComboBox>
+                                        <TextBlock Text="@" Style="{StaticResource LabelStyle}" Width="12"/>
+                                        <TextBox Text="{Binding AngleDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"
+                                                 Style="{StaticResource ParamBox}" Width="36"/>
+                                        <TextBlock Text="° d=" Style="{StaticResource LabelStyle}" Width="24"/>
+                                        <TextBox Text="{Binding DepthMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                                 Style="{StaticResource ParamBox}" Width="36"/>
+                                        <TextBlock Text=" w=" Style="{StaticResource LabelStyle}" Width="22"/>
+                                        <TextBox Text="{Binding WidthMm, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"
+                                                 Style="{StaticResource ParamBox}" Width="36"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Content="+ Add Notch" Command="{Binding AddFrameNotchCommand}"
+                                Style="{StaticResource ActionBtn}" HorizontalAlignment="Left"/>
                     </StackPanel>
                 </GroupBox>
 
@@ -217,6 +312,8 @@
                             <Slider Minimum="100" Maximum="10000" Value="{Binding SamplingRateHz}"
                                     Style="{StaticResource ParamSlider}"/>
                         </DockPanel>
+                        <TextBlock Text="{Binding SamplesPerRotation, StringFormat='Samples/revolution: {0}'}"
+                                   Foreground="#88AAFF" FontSize="10" Margin="0,4,0,0"/>
                     </StackPanel>
                 </GroupBox>
 
@@ -254,6 +351,16 @@
                                 Style="{StaticResource ActionBtn}" HorizontalAlignment="Left"/>
                     </StackPanel>
                 </GroupBox>
+
+                <!-- Presets -->
+                <GroupBox Header="Presets">
+                    <WrapPanel>
+                        <Button Content="💾 Save Preset" Command="{Binding SavePresetCommand}"
+                                Style="{StaticResource ActionBtn}"/>
+                        <Button Content="📂 Load Preset" Command="{Binding LoadPresetCommand}"
+                                Style="{StaticResource ActionBtn}"/>
+                    </WrapPanel>
+                </GroupBox>
             </StackPanel>
         </ScrollViewer>
 
@@ -264,7 +371,10 @@
             OffsetX="{Binding OffsetX}"
             OffsetY="{Binding OffsetY}"
             CurrentAngle="{Binding ManualAngleDeg}"
-            NotchStartDeg="{Binding NotchStartDeg}"/>
+            NotchStartDeg="{Binding NotchStartDeg}"
+            WaferContour="{Binding WaferContour}"
+            IsNotchMode="{Binding IsNotchMode}"
+            FrameNotches="{Binding FrameNotchList}"/>
 
         <!-- ═══════ RIGHT: SENSOR BAR ═══════ -->
         <local:SensorBarControl Grid.Column="2" Grid.Row="0"

@@ -147,6 +147,21 @@ public sealed class SensorChartControl : Control
             }
             geometry.Freeze();
             dc.DrawGeometry(null, DataPen, geometry);
+
+            // Draw sample dots when sample count is low to visualize aliasing
+            if (angles.Length <= 200)
+            {
+                var dotBrush = new SolidColorBrush(Color.FromRgb(0, 200, 255));
+                for (int i = 0; i < angles.Length; i++)
+                {
+                    double val = values[i];
+                    if (double.IsNaN(val)) continue;
+                    double dotX = plotLeft + angles[i] / 360.0 * plotW;
+                    double dotY = plotBottom - (val - yMin) / (yMax - yMin) * plotH;
+                    dotY = Math.Clamp(dotY, plotTop, plotBottom);
+                    dc.DrawEllipse(dotBrush, null, new Point(dotX, dotY), 3, 3);
+                }
+            }
         }
 
         // Current angle cursor

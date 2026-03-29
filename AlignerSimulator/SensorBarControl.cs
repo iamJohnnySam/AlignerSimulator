@@ -6,7 +6,6 @@ namespace AlignerSimulator;
 
 /// <summary>
 /// Vertical bar showing the 0–28 mm sensor range with the current edge position highlighted.
-/// Mimics the physical Keyence IG-028 sensor output.
 /// </summary>
 public sealed class SensorBarControl : Control
 {
@@ -80,7 +79,7 @@ public sealed class SensorBarControl : Control
         dc.DrawEllipse(indicatorBrush, null, new Point(barLeft + barW / 2, valY), 4, 4);
 
         // Title
-        var title = new FormattedText("IG-028", System.Globalization.CultureInfo.InvariantCulture,
+        var title = new FormattedText("Sensor", System.Globalization.CultureInfo.InvariantCulture,
             FlowDirection.LeftToRight, LabelFont, 10, Brushes.White, 1.0);
         dc.DrawText(title, new Point(w / 2 - title.Width / 2, 2));
 
