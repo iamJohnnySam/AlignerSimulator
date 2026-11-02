@@ -336,6 +336,43 @@
                     </StackPanel>
                 </GroupBox>
 
+                <!-- Measurement -->
+                <GroupBox Header="Aligner Measurement">
+                    <StackPanel>
+                        <TextBlock Text="Centring offset and notch/flat angle found from the trace, against the truth."
+                                   Foreground="#88AAFF" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                        <Button Content="📐 Measure" Command="{Binding MeasureCommand}"
+                                Style="{StaticResource ActionBtn}" HorizontalAlignment="Left"/>
+                        <TextBlock Text="{Binding MeasurementText}" Foreground="#CCCCCC" FontSize="11"
+                                   FontFamily="Consolas" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- Flow device endpoint -->
+                <GroupBox Header="Flow Device (CommSpec over TCP)">
+                    <StackPanel>
+                        <DockPanel>
+                            <TextBox Text="{Binding DevicePort, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"
+                                     IsEnabled="{Binding IsDeviceListening, Converter={StaticResource InvBool}}"/>
+                            <TextBlock Text="Port" Style="{StaticResource LabelStyle}"/>
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBox Text="{Binding DeviceTargetDeg, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"
+                                     Style="{StaticResource ParamBox}" DockPanel.Dock="Right"/>
+                            <TextBlock Text="ALIGN target (°)" Style="{StaticResource LabelStyle}"/>
+                        </DockPanel>
+                        <Button Content="{Binding DeviceButtonLabel}" Command="{Binding ToggleDeviceCommand}"
+                                Style="{StaticResource ActionBtn}" HorizontalAlignment="Left"/>
+                        <TextBlock Text="{Binding DeviceStatus}" Foreground="#88AAFF" FontSize="10" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding LastAlignText}" Foreground="#CCCCCC" FontSize="11"
+                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <ListBox ItemsSource="{Binding DeviceLog}" Height="90" Margin="0,4,0,0"
+                                 Background="#15151F" Foreground="#AAAAAA" BorderBrush="#444"
+                                 FontFamily="Consolas" FontSize="10"/>
+                    </StackPanel>
+                </GroupBox>
+
                 <!-- Export -->
                 <GroupBox Header="Export">
                     <StackPanel>

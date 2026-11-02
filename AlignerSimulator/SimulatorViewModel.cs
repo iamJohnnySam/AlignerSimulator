@@ -44,8 +44,6 @@ public sealed class FrameNotchDefinition : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
 }
 
-public enum EdgeFeatureMode { Notch, Flat, DoubleFlat }
-
 public sealed class SimulatorViewModel : INotifyPropertyChanged
 {
     // ── Backing fields ──────────────────────────────────────────────
@@ -80,16 +78,33 @@ public sealed class SimulatorViewModel : INotifyPropertyChanged
     private readonly Random _rng = new();
     private DateTime _runStartTime;
     private double _runStartAngle;
+    private SubstrateSpec _spec = new();
 
-    // For export buffer
-    private readonly List<(double Angle, double Value)> _exportBuffer = new();
+    // Measurement and the Flow device endpoint
+    private string _measurementText = "Press Measure to run the aligner's algorithm on the trace.";
+    private readonly AlignerDevice _device;
+    private int _devicePort = 7300;
+    private double _deviceTargetDeg;
+    private string _deviceStatus = "Not listening";
+    private string _lastAlignText = "";
+    private AlignResult? _motion;
+    private DateTime _motionStart;
 
     public SimulatorViewModel()
     {
         _timer.Tick += Timer_Tick;
         UpdateTimerInterval();
 
+        // The device runs on pool threads: it reads the state and reports back through the dispatcher.
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        _device = new AlignerDevice(() => dispatcher.Invoke(() => new AlignerState(_spec, ManualAngleDeg, ChuckSpeedRpm, SamplingRateHz)));
+        _device.AlignStarted += r => dispatcher.BeginInvoke(() => BeginMotion(r));
+        _device.AlignFinished += r => dispatcher.BeginInvoke(() => EndMotion(r));
+        _device.Log += line => dispatcher.BeginInvoke(() => AddDeviceLog(line));
+
         StartStopCommand = new RelayCommand(_ => ToggleRunning());
+        MeasureCommand = new RelayCommand(_ => Measure());
+        ToggleDeviceCommand = new RelayCommand(_ => ToggleDevice());
         ExportCsvCommand = new RelayCommand(_ => ExportCsv());
         AddChipCommand = new RelayCommand(_ => Chips.Add(new ChipDefinition()));
         RemoveChipCommand = new RelayCommand(p => { if (p is ChipDefinition c) Chips.Remove(c); });
@@ -102,7 +117,14 @@ public sealed class SimulatorViewModel : INotifyPropertyChanged
         _secondaryFlatLengthMm = WaferGeometry.DefaultSecondaryFlatLength(_waferDiameter);
 
         // Wire up collection change handlers for live updates
-        Chips.CollectionChanged += (_, _) => RecalculateFullRotation();
+        Chips.CollectionChanged += (_, e) =>
+        {
+            if (e.NewItems != null)
+                foreach (var item in e.NewItems)
+                    if (item is ChipDefinition c)
+                        c.PropertyChanged += (_, _) => RecalculateFullRotation();
+            RecalculateFullRotation();
+        };
         FrameNotches.CollectionChanged += (_, e) =>
         {
             if (e.NewItems != null)
@@ -239,7 +261,7 @@ public sealed class SimulatorViewModel : INotifyPropertyChanged
         set { _exportRotations = Math.Max(1, value); OnPropertyChanged(); }
     }
 
-    public int SamplesPerRotation => Math.Clamp((int)Math.Ceiling(SamplingRateHz * 60.0 / ChuckSpeedRpm), 4, 36000);
+    public int SamplesPerRotation => Aligner.SamplesPerRotation(SamplingRateHz, ChuckSpeedRpm);
 
     public ObservableCollection<ChipDefinition> Chips { get; } = new();
 
@@ -296,8 +318,46 @@ public sealed class SimulatorViewModel : INotifyPropertyChanged
         private set { _waferContour = value; OnPropertyChanged(); }
     }
 
+    public string MeasurementText
+    {
+        get => _measurementText;
+        private set { _measurementText = value; OnPropertyChanged(); }
+    }
+
+    public int DevicePort
+    {
+        get => _devicePort;
+        set { _devicePort = Math.Clamp(value, 1, 65535); OnPropertyChanged(); }
+    }
+
+    public double DeviceTargetDeg
+    {
+        get => _deviceTargetDeg;
+        set { _deviceTargetDeg = ((value % 360) + 360) % 360; _device.DefaultTargetDeg = _deviceTargetDeg; OnPropertyChanged(); }
+    }
+
+    public bool IsDeviceListening => _device.IsListening;
+
+    public string DeviceButtonLabel => IsDeviceListening ? "⏹ Stop Listening" : "🔌 Listen";
+
+    public string DeviceStatus
+    {
+        get => _deviceStatus;
+        private set { _deviceStatus = value; OnPropertyChanged(); }
+    }
+
+    public string LastAlignText
+    {
+        get => _lastAlignText;
+        private set { _lastAlignText = value; OnPropertyChanged(); }
+    }
+
+    public ObservableCollection<string> DeviceLog { get; } = new();
+
     // ── Commands ────────────────────────────────────────────────────
     public ICommand StartStopCommand { get; }
+    public ICommand MeasureCommand { get; }
+    public ICommand ToggleDeviceCommand { get; }
     public ICommand ExportCsvCommand { get; }
     public ICommand AddChipCommand { get; }
     public ICommand RemoveChipCommand { get; }
@@ -308,37 +368,32 @@ public sealed class SimulatorViewModel : INotifyPropertyChanged
 
     // ── Engine ──────────────────────────────────────────────────────
 
-    private double EffectiveRadius => IsTapeFrame
-        ? WaferGeometry.FrameOuterDiameter(WaferDiameter) / 2.0
-        : WaferDiameter / 2.0;
-
-    private double SensorRadius => EffectiveRadius; // sensor positioned at nominal edge
-
-    private IReadOnlyList<(double, double, double)> ChipList =>
-        Chips.Select(c => (c.AngleDeg, c.DepthMm, c.WidthDeg)).ToList();
-
-    private double ReadSensor(double angleDeg)
+    private SubstrateSpec BuildSpec() => new()
     {
-        if (IsTapeFrame)
-        {
-            return WaferGeometry.ComputeTapeFrameSensorReading(
-                angleDeg, WaferDiameter, SensorRadius,
-                OffsetX, OffsetY, NoiseMm, _rng, FrameNotchList);
-        }
+        IsTapeFrame = IsTapeFrame,
+        WaferDiameterMm = WaferDiameter,
+        EdgeFeature = _edgeFeature,
+        NotchAngleDeg = NotchStartDeg,
+        NotchDepthMm = NotchDepthMm,
+        NotchHalfWidthDeg = NotchWidthDeg,
+        PrimaryFlatLengthMm = PrimaryFlatLengthMm,
+        PrimaryFlatAngleDeg = PrimaryFlatAngleDeg,
+        SecondaryFlatLengthMm = SecondaryFlatLengthMm,
+        SecondaryFlatAngleDeg = SecondaryFlatAngleDeg,
+        BowMm = BowMm,
+        PotatoChipMm = PotatoChipMm,
+        Chips = Chips.Select(c => new EdgeChip(c.AngleDeg, c.DepthMm, c.WidthDeg)).ToArray(),
+        FrameNotches = FrameNotchList,
+        OffsetXMm = OffsetX,
+        OffsetYMm = OffsetY,
+        NoiseMm = NoiseMm,
+    };
 
-        return WaferGeometry.ComputeSensorReading(
-            angleDeg, EffectiveRadius, SensorRadius,
-            OffsetX, OffsetY,
-            NotchStartDeg, NotchDepthMm, NotchWidthDeg,
-            BowMm, PotatoChipMm, ChipList,
-            PrimaryFlatLengthMm, PrimaryFlatAngleDeg,
-            SecondaryFlatLengthMm, SecondaryFlatAngleDeg,
-            IsNotchMode, HasPrimaryFlat, HasSecondaryFlat,
-            NoiseMm, _rng);
-    }
+    private double ReadSensor(double angleDeg) => WaferGeometry.SensorReading(_spec, angleDeg, _rng);
 
     private void RecalculateFullRotation()
     {
+        _spec = BuildSpec();
         int samples = SamplesPerRotation;
 
         var angles = new double[samples];
@@ -359,13 +414,7 @@ public sealed class SimulatorViewModel : INotifyPropertyChanged
             for (int i = 0; i < contourPoints; i++)
             {
                 double a = 360.0 * i / contourPoints;
-                contour[i] = WaferGeometry.ComputeWaferEdgeRadius(
-                    a, EffectiveRadius,
-                    NotchStartDeg, NotchDepthMm, NotchWidthDeg,
-                    BowMm, PotatoChipMm, ChipList,
-                    PrimaryFlatLengthMm, PrimaryFlatAngleDeg,
-                    SecondaryFlatLengthMm, SecondaryFlatAngleDeg,
-                    IsNotchMode, HasPrimaryFlat, HasSecondaryFlat);
+                contour[i] = WaferGeometry.EdgeRadius(_spec, a);
             }
             WaferContour = contour;
         }
@@ -389,14 +438,14 @@ public sealed class SimulatorViewModel : INotifyPropertyChanged
     {
         if (IsRunning)
         {
-            _timer.Stop();
             IsRunning = false;
+            if (_motion is null) _timer.Stop();
         }
         else
         {
+            if (_motion is not null) return; // the device owns the chuck until its alignment ends
             _runStartTime = DateTime.UtcNow;
             _runStartAngle = ManualAngleDeg;
-            _exportBuffer.Clear();
             _timer.Start();
             IsRunning = true;
         }
@@ -404,13 +453,109 @@ public sealed class SimulatorViewModel : INotifyPropertyChanged
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
+        if (_motion is { } m)
+        {
+            // An alignment: one scanning rotation, then the short turn to the final angle.
+            double t = (DateTime.UtcNow - _motionStart).TotalSeconds;
+            double scan = m.ScanTime.TotalSeconds;
+            double turn = m.TurnTime.TotalSeconds;
+            if (t < scan)
+                ManualAngleDeg = m.StartChuckAngleDeg + 360.0 * t / scan;
+            else if (t < scan + turn)
+            {
+                double delta = AngleDelta(m.FinalChuckAngleDeg, m.StartChuckAngleDeg);
+                ManualAngleDeg = m.StartChuckAngleDeg + delta * (t - scan) / turn;
+            }
+            else
+                ManualAngleDeg = m.FinalChuckAngleDeg;
+            return;
+        }
+
         double elapsed = (DateTime.UtcNow - _runStartTime).TotalSeconds;
         double degreesPerSecond = ChuckSpeedRpm / 60.0 * 360.0;
-        double angle = (_runStartAngle + elapsed * degreesPerSecond) % 360.0;
+        ManualAngleDeg = (_runStartAngle + elapsed * degreesPerSecond) % 360.0; // this triggers recalc + display update
+    }
 
-        ManualAngleDeg = angle; // this triggers recalc + display update
+    private static double AngleDelta(double to, double from)
+    {
+        double d = (((to - from) % 360) + 360) % 360;
+        return d > 180 ? d - 360 : d;
+    }
 
-        _exportBuffer.Add((angle, CurrentSensorValue));
+    // ── Measurement and the Flow device ─────────────────────────────
+
+    private void Measure()
+    {
+        var m = EdgeAnalyzer.Analyze(AngleHistory, SensorHistory, _spec.SensorRadiusMm, _spec.IsTapeFrame);
+        MeasurementText = Describe(m, _spec);
+    }
+
+    private static string Describe(EdgeMeasurement? m, SubstrateSpec truth)
+    {
+        if (m is null)
+            return "No edge: fewer than half the samples fell within the sensor's 0–28 mm.";
+
+        string text = $"Offset X {m.OffsetXMm:F3}  Y {m.OffsetYMm:F3} mm (true {truth.OffsetXMm:F3}, {truth.OffsetYMm:F3})\n"
+                    + $"Noise σ {m.NoiseMm:F3} mm · {m.ValidSamples} samples";
+        if (!m.FeatureFound)
+            return text + "\nNo notch or flat stood out of the edge.";
+
+        text += $"\nFeature {m.FeatureAngleDeg:F3}° · depth {m.FeatureDepthMm:F2} mm";
+        if (truth.FeatureAngleDeg is { } trueAngle)
+            text += $"\nTrue {trueAngle:F3}° · error {AngleDelta(m.FeatureAngleDeg, trueAngle):+0.000;-0.000}°";
+        return text;
+    }
+
+    private void BeginMotion(AlignResult r)
+    {
+        if (IsRunning) IsRunning = false;
+        _motion = r;
+        _motionStart = DateTime.UtcNow;
+        _timer.Start();
+        LastAlignText = $"Aligning to {r.TargetDeg:F2}°…";
+    }
+
+    private void EndMotion(AlignResult r)
+    {
+        _motion = null;
+        if (!IsRunning) _timer.Stop();
+        ManualAngleDeg = r.FinalChuckAngleDeg;
+        MeasurementText = Describe(r.Measurement, _spec);
+        LastAlignText = r.Succeeded
+            ? $"Aligned to {r.TargetDeg:F2}° in {r.Duration.TotalSeconds:F2} s"
+              + (r.ErrorDeg is { } err ? $" · notch really at {r.AchievedDeg:F3}° (error {err:+0.000;-0.000}°)" : "")
+            : $"Failed {r.FailureCode}: {r.FailureDetail}";
+    }
+
+    private void ToggleDevice()
+    {
+        try
+        {
+            if (_device.IsListening)
+            {
+                _device.Stop();
+                DeviceStatus = "Not listening";
+            }
+            else
+            {
+                _device.DefaultTargetDeg = DeviceTargetDeg;
+                _device.Start(DevicePort);
+                DeviceStatus = $"Listening on 127.0.0.1:{_device.Port} (CommSpec)";
+            }
+        }
+        catch (System.Net.Sockets.SocketException ex)
+        {
+            DeviceStatus = $"Cannot listen on {DevicePort}: {ex.Message}";
+        }
+        OnPropertyChanged(nameof(IsDeviceListening));
+        OnPropertyChanged(nameof(DeviceButtonLabel));
+    }
+
+    private void AddDeviceLog(string line)
+    {
+        DeviceLog.Insert(0, $"{DateTime.Now:HH:mm:ss.fff}  {line}");
+        while (DeviceLog.Count > 100)
+            DeviceLog.RemoveAt(DeviceLog.Count - 1);
     }
 
     private void ExportCsv()

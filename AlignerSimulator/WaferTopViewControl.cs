@@ -95,8 +95,10 @@ public sealed class WaferTopViewControl : Control
         dc.DrawEllipse(new SolidColorBrush(Color.FromRgb(50, 50, 50)), ChuckPen,
             new Point(cx, cy), 15, 15);
 
-        double oxPx = OffsetX * scale;
-        double oyPx = -OffsetY * scale;
+        // The offset turns with the chuck, so the wafer centre orbits the chuck centre.
+        double rotRad = CurrentAngle * Math.PI / 180.0;
+        double oxPx = (OffsetX * Math.Cos(rotRad) + OffsetY * Math.Sin(rotRad)) * scale;
+        double oyPx = -(-OffsetX * Math.Sin(rotRad) + OffsetY * Math.Cos(rotRad)) * scale;
         double waferCx = cx + oxPx;
         double waferCy = cy + oyPx;
 
