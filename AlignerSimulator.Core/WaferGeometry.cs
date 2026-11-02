@@ -167,68 +167,46 @@ public static class WaferGeometry
         return Math.Max(baseR, 0);
     }
 
-    // ---- Wafer edge radius (for both sensor reading and top-view contour) ----
+    // ---- Edge radius in the substrate's own frame ----
 
     /// <summary>
-    /// Computes the polar edge radius of a wafer at a given angle, incorporating
-    /// notch or flat/double-flat features, bow, warp, and edge chips.
+    /// Polar radius of the substrate's outer edge at an angle in its own frame: the tape frame's
+    /// rounded square with its notches, or the wafer with its notch or flats, bow, warp and chips.
     /// </summary>
-    public static double ComputeWaferEdgeRadius(
-        double angleDeg,
-        double waferRadiusMm,
-        double notchStartDeg, double notchDepthMm, double notchWidthDeg,
-        double bowMm, double potatoChipMm,
-        IReadOnlyList<(double AngleDeg, double DepthMm, double WidthDeg)> chips,
-        double primaryFlatLengthMm, double primaryFlatAngleDeg,
-        double secondaryFlatLengthMm, double secondaryFlatAngleDeg,
-        bool useNotch, bool usePrimaryFlat, bool useSecondaryFlat)
+    public static double EdgeRadius(SubstrateSpec s, double substrateAngleDeg)
     {
-        double angleRad = angleDeg * Math.PI / 180.0;
-        double R = waferRadiusMm;
+        if (s.IsTapeFrame)
+            return ComputeFrameEdgeRadius(substrateAngleDeg, GetTapeFrameSpec(s.WaferDiameterMm), s.FrameNotches);
+
+        double angleRad = substrateAngleDeg * Math.PI / 180.0;
+        double R = s.NominalRadiusMm;
 
         // Base circular radius with bow and saddle warp
-        double effectiveR = R + bowMm + potatoChipMm * Math.Cos(2.0 * angleRad);
+        double effectiveR = R + s.BowMm + s.PotatoChipMm * Math.Cos(2.0 * angleRad);
 
         // Notch (cosine-bell profile)
-        if (useNotch && notchWidthDeg > 0)
+        if (s.HasNotch && s.NotchHalfWidthDeg > 0)
         {
-            double notchAngleRad = notchStartDeg * Math.PI / 180.0;
-            double rel = AngleDiffRad(angleRad, notchAngleRad);
-            double halfRad = notchWidthDeg * Math.PI / 180.0;
+            double rel = AngleDiffRad(angleRad, s.NotchAngleDeg * Math.PI / 180.0);
+            double halfRad = s.NotchHalfWidthDeg * Math.PI / 180.0;
             if (Math.Abs(rel) < halfRad)
-            {
-                double t = rel / halfRad;
-                effectiveR -= notchDepthMm * Math.Cos(t * Math.PI / 2.0);
-            }
+                effectiveR -= s.NotchDepthMm * Math.Cos(rel / halfRad * Math.PI / 2.0);
         }
 
-        // Primary flat (chord cut - takes minimum of circle and flat line)
-        if (usePrimaryFlat && primaryFlatLengthMm > 0)
-        {
-            double flatR = FlatRadiusAtAngle(angleRad, R, primaryFlatLengthMm, primaryFlatAngleDeg);
-            if (flatR < effectiveR)
-                effectiveR = flatR;
-        }
+        // Flats (chord cuts - take the minimum of circle and flat line)
+        if (s.HasPrimaryFlat && s.PrimaryFlatLengthMm > 0)
+            effectiveR = Math.Min(effectiveR, FlatRadiusAtAngle(angleRad, R, s.PrimaryFlatLengthMm, s.PrimaryFlatAngleDeg));
 
-        // Secondary flat (chord cut)
-        if (useSecondaryFlat && secondaryFlatLengthMm > 0)
-        {
-            double flatR = FlatRadiusAtAngle(angleRad, R, secondaryFlatLengthMm, secondaryFlatAngleDeg);
-            if (flatR < effectiveR)
-                effectiveR = flatR;
-        }
+        if (s.HasSecondaryFlat && s.SecondaryFlatLengthMm > 0)
+            effectiveR = Math.Min(effectiveR, FlatRadiusAtAngle(angleRad, R, s.SecondaryFlatLengthMm, s.SecondaryFlatAngleDeg));
 
         // Edge chips
-        foreach (var (chipAngle, chipDepth, chipWidth) in chips)
+        foreach (var chip in s.Chips)
         {
-            double chipRad = chipAngle * Math.PI / 180.0;
-            double chipHalfRad = chipWidth * Math.PI / 180.0;
-            double rel = AngleDiffRad(angleRad, chipRad);
-            if (Math.Abs(rel) < chipHalfRad && chipHalfRad > 0)
-            {
-                double t2 = rel / chipHalfRad;
-                effectiveR -= chipDepth * Math.Cos(t2 * Math.PI / 2.0);
-            }
+            double chipHalfRad = chip.WidthDeg * Math.PI / 180.0;
+            double rel = AngleDiffRad(angleRad, chip.AngleDeg * Math.PI / 180.0);
+            if (chipHalfRad > 0 && Math.Abs(rel) < chipHalfRad)
+                effectiveR -= chip.DepthMm * Math.Cos(rel / chipHalfRad * Math.PI / 2.0);
         }
 
         return Math.Max(effectiveR, 0);
@@ -251,89 +229,54 @@ public static class WaferGeometry
         return double.MaxValue;
     }
 
-    // ---- Sensor reading: tape frame ----
+    // ---- Sensor reading ----
 
     /// <summary>
-    /// Compute the sensor reading for a tape frame (outer contour only).
+    /// Substrate centre in the sensor frame (sensor on +X) with the chuck at the given angle:
+    /// the centring offset orbits the chuck centre as the chuck turns.
     /// </summary>
-    public static double ComputeTapeFrameSensorReading(
-        double angleDeg,
-        double waferDiameterMm,
-        double sensorRadiusMm,
-        double offsetXMm,
-        double offsetYMm,
-        double noiseMm,
-        Random random,
-        IReadOnlyList<FrameNotch>? notches = null)
+    public static (double X, double Y) CentreInSensorFrame(SubstrateSpec s, double chuckAngleDeg)
     {
-        var spec = GetTapeFrameSpec(waferDiameterMm);
-        double effectiveRadius = ComputeFrameEdgeRadius(angleDeg, spec, notches);
+        double a = chuckAngleDeg * Math.PI / 180.0;
+        return (s.OffsetXMm * Math.Cos(a) + s.OffsetYMm * Math.Sin(a),
+               -s.OffsetXMm * Math.Sin(a) + s.OffsetYMm * Math.Cos(a));
+    }
 
-        double angleRad = angleDeg * Math.PI / 180.0;
-        double rotCx = offsetXMm * Math.Cos(angleRad) + offsetYMm * Math.Sin(angleRad);
-        double rotCy = -offsetXMm * Math.Sin(angleRad) + offsetYMm * Math.Cos(angleRad);
+    /// <summary>
+    /// The sensor reading with the chuck at a given angle: where the sensor's radial line meets
+    /// the substrate edge, 0-28 mm with the nominal edge at 14 mm.  NaN when the line misses it.
+    /// </summary>
+    /// <remarks>
+    /// With a centring offset the line does not meet the edge at the chuck angle but at the
+    /// chuck angle plus the angle the offset tilts it by, and the edge radius there decides how
+    /// far out it meets it.  The two depend on each other, so this iterates; the tilt changes
+    /// slowly with the radius, so a few rounds converge even on a notch's flank.
+    /// </remarks>
+    public static double SensorReading(SubstrateSpec s, double chuckAngleDeg, Random? random = null)
+    {
+        var (cx, cy) = CentreInSensorFrame(s, chuckAngleDeg);
 
-        double d2 = effectiveRadius * effectiveRadius - rotCy * rotCy;
-        if (d2 < 0)
-            return double.NaN;
+        double substrateAngle = chuckAngleDeg;
+        double along = double.NaN;
+        for (int i = 0; i < 5; i++)
+        {
+            double r = EdgeRadius(s, substrateAngle);
+            double d2 = r * r - cy * cy;
+            if (d2 < 0)
+                return double.NaN;
+            along = Math.Sqrt(d2);
+            substrateAngle = chuckAngleDeg + Math.Atan2(-cy, along) * 180.0 / Math.PI;
+        }
 
-        double edgeX = rotCx + Math.Sqrt(d2);
-        double sensorZero = sensorRadiusMm - SensorMidpoint;
-        double sensorValue = edgeX - sensorZero;
+        double sensorZero = s.SensorRadiusMm - SensorMidpoint;
+        double sensorValue = cx + along - sensorZero;
 
-        if (noiseMm > 0)
-            sensorValue += NormalRandom(random) * noiseMm;
+        if (s.NoiseMm > 0 && random != null)
+            sensorValue += NormalRandom(random) * s.NoiseMm;
 
         return sensorValue;
     }
 
-    // ---- Sensor reading: wafer ----
-
-    /// <summary>
-    /// Compute the sensor reading for a wafer (edge with notch or flat features,
-    /// bow, warp, and chips). Returns NaN when edge is outside sensor range.
-    /// </summary>
-    public static double ComputeSensorReading(
-        double angleDeg,
-        double waferRadiusMm,
-        double sensorRadiusMm,
-        double offsetXMm,
-        double offsetYMm,
-        double notchStartDeg, double notchDepthMm, double notchWidthDeg,
-        double bowMm, double potatoChipMm,
-        IReadOnlyList<(double AngleDeg, double DepthMm, double WidthDeg)> chips,
-        double primaryFlatLengthMm, double primaryFlatAngleDeg,
-        double secondaryFlatLengthMm, double secondaryFlatAngleDeg,
-        bool useNotch, bool usePrimaryFlat, bool useSecondaryFlat,
-        double noiseMm,
-        Random random)
-    {
-        double angleRad = angleDeg * Math.PI / 180.0;
-
-        double effectiveRadius = ComputeWaferEdgeRadius(
-            angleDeg, waferRadiusMm,
-            notchStartDeg, notchDepthMm, notchWidthDeg,
-            bowMm, potatoChipMm, chips,
-            primaryFlatLengthMm, primaryFlatAngleDeg,
-            secondaryFlatLengthMm, secondaryFlatAngleDeg,
-            useNotch, usePrimaryFlat, useSecondaryFlat);
-
-        double rotCx = offsetXMm * Math.Cos(angleRad) + offsetYMm * Math.Sin(angleRad);
-        double rotCy = -offsetXMm * Math.Sin(angleRad) + offsetYMm * Math.Cos(angleRad);
-
-        double d2 = effectiveRadius * effectiveRadius - rotCy * rotCy;
-        if (d2 < 0)
-            return double.NaN;
-
-        double edgeX = rotCx + Math.Sqrt(d2);
-        double sensorZero = sensorRadiusMm - SensorMidpoint;
-        double sensorValue = edgeX - sensorZero;
-
-        if (noiseMm > 0 && random != null)
-            sensorValue += NormalRandom(random) * noiseMm;
-
-        return sensorValue;
-    }
 
     /// <summary>Shortest signed angle difference in radians, result in (-pi, pi].</summary>
     private static double AngleDiffRad(double a, double b)
@@ -344,7 +287,7 @@ public static class WaferGeometry
     }
 
     /// <summary>Box-Muller Gaussian.</summary>
-    private static double NormalRandom(Random rng)
+    internal static double NormalRandom(Random rng)
     {
         double u1 = 1.0 - rng.NextDouble();
         double u2 = rng.NextDouble();

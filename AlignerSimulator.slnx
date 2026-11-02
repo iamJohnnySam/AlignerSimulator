@@ -1,3 +1,5 @@
 <Solution>
+  <Project Path="AlignerSimulator.Core/AlignerSimulator.Core.csproj" />
+  <Project Path="AlignerSimulator.Tests/AlignerSimulator.Tests.csproj" />
   <Project Path="AlignerSimulator/AlignerSimulator.csproj" />
 </Solution>

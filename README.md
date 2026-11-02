@@ -83,6 +83,40 @@ The simulator accurately models real-world wafer conditions:
 - **Stores all parameters**: Substrate type, geometry, imperfections, chips, frame notches
 - **Scenario libraries**: Build collections of test cases for systematic validation
 
+### 📐 Aligner Measurement
+- **Measure** runs the pre-aligner's algorithm on the current rotation trace
+- Reports the centring offset, the notch/flat angle, its depth and the noise estimate
+- Shows the error against the true geometry, so you can see what noise, chips, warp and sampling rate do to alignment accuracy
+
+### 🔌 Flow Device Endpoint
+The simulator can stand in for a real pre-aligner under Flow, the iamJohnnySam tool-control software for semiconductor equipment.
+It speaks Flow's **CommSpec** framing (`framings/commspec.yaml`: `<{id},{body}>{xor}\r\n`) over TCP,
+which is what Flow's `aligner` device type (e.g. `samples/bundles/lp-al-pm`) sends on its `tcp` binding.
+
+| Request | Reply |
+|---------|-------|
+| `ALIGN` | Scan one rotation, measure, turn the feature to the panel's target, then `Ack,angle={target}` |
+| `ALIGN {deg}` | As above, to `{deg}` |
+| `STATUS?` | `Ack,Idle` or `Ack,Busy` |
+| while aligning | `Nak,Bsy` |
+| no edge in range / no feature | `Nak,Err,E101` / `Nak,Err,E102` |
+| bad checksum / unknown | `Nak,CHECKSUM` / `Nak,UNKNOWN` |
+
+Flow Core reads `angle=` as the wafer's orientation. The reply arrives when the motion ends, in real
+time at the chuck speed, and the top view animates the scan and the turn. The panel shows where the
+notch *really* landed, so Flow sees a perfect `angle=0.00` while you can see the alignment error
+behind it. Keep the chuck fast enough that one rotation plus a half turn fits inside the action's
+timeout (15 s in `lp-al-pm`).
+
+To drive it from Flow:
+1. In the simulator, set the port (default 7300) and press **Listen**.
+2. Run one aligner against it:
+   ```bash
+   flow agent-host samples/bundles/lp-al-pm --device AL1 --type aligner --binding tcp --endpoint 127.0.0.1:7300 --port 5311
+   flow device AL1 Align --host 127.0.0.1:5311      # completed angle=0.00
+   ```
+   Or, for the whole tool, set `AL1`'s `binding: tcp` and `endpoint: 127.0.0.1:7300` in the bundle's `layout.yaml`.
+
 ## Technical Details
 
 ### Sensor Model
@@ -248,12 +282,14 @@ The edge radius at any angle incorporates:
 For a notch centered at angle θ₀ with depth d and half-width w:
 
 ```
-r(θ) = r₀ - d × (1 - |t|)    if |Δθ| < w
-       r₀                      otherwise
+r(θ) = r₀ - d × cos(t × π/2)    if |Δθ| < w
+       r₀                         otherwise
 
-where: t = (θ - θ₀) / w
+where: t = Δθ / w
        Δθ = angle_difference(θ, θ₀)
 ```
+
+Edge chips use the same profile. Tape frame notches are true V (`d × (1 - |t|)`) or U (`d × √(1 - t²)`) cuts.
 
 ### Flat Geometry
 
@@ -269,13 +305,35 @@ r_effective(θ) = r_base + bow + potato × cos(2θ)
 
 ### Center Offset Transformation
 
-For offset (x₀, y₀) from chuck center:
+For offset (x₀, y₀) from chuck center, the wafer centre orbits the chuck centre. In the sensor's frame
+(sensor line along +X), at chuck angle θ:
 ```
-r_sensor(θ) = r_wafer(θ') + Δr_offset
-θ' = θ + Δθ_offset
+cx =  x₀ cos θ + y₀ sin θ
+cy = -x₀ sin θ + y₀ cos θ
 
-where geometric ray-casting solves for intersection
+along = √(r(φ)² - cy²)          the sensor line meets the edge here
+φ     = θ + atan2(-cy, along)    ...at this angle on the wafer
+reading = cx + along - (sensor radius - 14)
 ```
+`r(φ)` and `φ` depend on each other, so the model iterates (it converges in a few rounds, even on a
+notch flank). The wafer angle the sensor reads is therefore **not** the chuck angle: with a 2 mm
+offset on a 300 mm wafer the two differ by up to ~0.8°, twice the width of a standard notch. An
+aligner has to correct for that, and the measurement below does.
+
+### Aligner Measurement
+
+What a pre-aligner computes from one rotation (`EdgeAnalyzer`):
+1. Least-squares fit of the edge as `c₀ + Σ aₖ cos kθ + bₖ sin kθ`: up to k = 2 for a wafer (k = 1
+   is the centring offset; k = 2 absorbs saddle warp and the offset's second-order term), up to
+   k = 24 for a tape frame so its rounded-square corners are absorbed too.
+2. Refit without the samples that dip more than max(4σ, 0.02 mm) below the fit, until the mask
+   settles; σ is the robust (MAD) noise estimate.
+3. The deepest dip is the feature if it is deeper than max(6σ, 0.05 mm). Its centre is midway
+   between its half-depth crossings, and the offset correction above turns that chuck angle into
+   the feature's angle on the wafer.
+
+Readings outside the sensor's 0–28 mm span count as missing. Fewer than half the samples in range
+means no measurement.
 
 ### Tape Frame Rounded Square
 
@@ -304,14 +362,22 @@ Four flats at 0°, 90°, 180°, 270° with perpendicular distance `d` from cente
 git clone https://github.com/iamJohnnySam/AlignerSimulator.git
 cd AlignerSimulator
 dotnet build
+dotnet test --project AlignerSimulator.Tests
 dotnet run --project AlignerSimulator
 ```
 
 ### Project Structure
 ```
-AlignerSimulator/
-├── SimulatorViewModel.cs      # Core simulation logic & data model
-├── WaferGeometry.cs            # Pure math engine for edge calculations
+AlignerSimulator.Core/          # Pure engine, no WPF (net10.0)
+├── SubstrateSpec.cs            # Immutable snapshot of substrate, features, offset, noise
+├── WaferGeometry.cs            # Edge contour and sensor ray-cast
+├── EdgeAnalyzer.cs             # The aligner's algorithm: offset and notch/flat from a trace
+├── Aligner.cs                  # One alignment: scan, measure, turn to target
+├── CommSpec.cs                 # Flow's CommSpec line framing
+└── AlignerDevice.cs            # TCP endpoint Flow drives as an aligner
+AlignerSimulator.Tests/         # xUnit v3 tests for the engine and the endpoint
+AlignerSimulator/               # WPF app
+├── SimulatorViewModel.cs      # UI state, live simulation, device wiring
 ├── SimulatorPreset.cs          # Configuration serialization models
 ├── MainWindow.xaml             # UI layout definition
 ├── MainWindow.xaml.cs          # UI code-behind
